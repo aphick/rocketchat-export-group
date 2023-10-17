@@ -114,57 +114,53 @@ def exportMessage(msg, alias, attachment, user):
 
 userID = 'userid'
 authToken = 'token'
-
+gID = ''
 outputDir = './'
 instanceURL = 'https://myinstance'
+
 rocket = RocketChat(user_id=userID, auth_token=authToken, server_url=instanceURL)
-allGroups = rocket.groups_list_all(count='0').json()['groups']
 
-for x in range(len(allGroups)):
-    if 'archived' in allGroups[x]:
-        if allGroups[x]['archived'] == True:
+# Generate folder structure and tmp dir
+tD = tempfile.TemporaryDirectory()
+projDir = tD.name
+assDir = projDir + '/assets'
+os.mkdir(assDir)
+chanFile = projDir + '/' + gID + '.html' 
 
-            # Generate folder structure and tmp dir
-            tD = tempfile.TemporaryDirectory()
-            projDir = tD.name
-            assDir = projDir + '/assets'
-            os.mkdir(assDir)
-            gID = allGroups[x]['_id']
-            gName = allGroups[x]['name']
-            chanFile = projDir + '/' + gName + '.html' 
+# Take ownership of room
+gInfo = rocket.groups_info(room_id=gID).json()['group']
+gName = gInfo['name']
+rocket.groups_invite(gID, userID) #Need "Add User to Any Private Channel" permission
+rocket.groups_add_owner(gID, user_id=userID)
 
-            # Take ownership of room
-            rocket.groups_unarchive(gID)
-            rocket.groups_invite(gID, userID) # Need "Add User to Any Private Channel" permission
-            rocket.groups_add_owner(gID, user_id=userID)
-            gInfo = rocket.groups_info(room_name=gName).json()['group']
+f = open(chanFile, "w")
+f.write('<meta http-equiv="content-type" content="text/html; charset=utf-8">\n')
+f.write('<html>\n<body>')
+gHist=rocket.groups_history(gID, count=0).json()['messages']
 
-            f = open(chanFile, "w")
-            f.write('<meta http-equiv="content-type" content="text/html; charset=utf-8">\n')
-            f.write('<html>\n<body>')
-            gHist=rocket.groups_history(gID, count=0).json()['messages']
+# Loop through messages in room and parse each
+for i in range(len(gHist)):
+    alias = None
+    attachment = None
+    user = None
+    msg = gHist[i]
+    if 'u' in msg:
+        user = msg['u']['username'] 
+    if 't' in msg:
+        alias = actionAlias(msg)
+    elif 'attachments' in msg:
+        for x in range(len(msg['attachments'])):
+            attachment = msg['attachments'][x]
+            saveAtt(assDir, attachment, msg)
+    f.write(exportMessage(msg, alias, attachment, user))
 
-            # Loop through messages in room and parse each
-            for i in range(len(gHist)):
-                alias = None
-                attachment = None
-                user = None
-                msg = gHist[i]
-                if 'u' in msg:
-                    user = msg['u']['username'] 
-                if 't' in msg:
-                    alias = actionAlias(msg)
-                elif 'attachments' in msg:
-                    for x in range(len(msg['attachments'])):
-                        attachment = msg['attachments'][x]
-                        saveAtt(assDir, attachment, msg)
-                f.write(exportMessage(msg, alias, attachment, user))
+f.write('</body>\n</html>')
+f.close()
 
-            f.write('</body>')
-            f.close()
+#rocket.groups_delete(gID)
 
-            zipDir = projDir + "/."
-            filename = outputDir + slugify(datetime.today().strftime('%Y-%m-%d_%H-%M-')+gName+"_"+str("rc-export"))
-            shutil.make_archive(filename, 'zip', zipDir)
+zipDir = projDir + "/."
+filename = outputDir + slugify(datetime.today().strftime('%Y-%m-%d_%H-%M-')+gName+"_"+str("rc-export"))
+shutil.make_archive(filename, 'zip', zipDir)
 
-            tD.cleanup()
+tD.cleanup()
